@@ -14,7 +14,7 @@ bishops, knights or queens, picked at random among those of a different type. Th
 stay on their squares; only what they are changes. Pawn and king moves, castling and
 promotions never trigger a swap. If you have no piece of a different type, nothing happens.
 Checks and checkmate are judged after the swap. You may castle with an unmoved corner piece
-only while it is currently a rook.
+whatever type it currently is; it moves to the square the king crossed, as a rook would.
 
 **Castling option.** Original Los Alamos chess has no castling. The game creator can switch it on:
 the king moves two squares toward a rook and that rook lands on the square the king crossed

@@ -196,11 +196,21 @@ console.log('engine tests passed', tally);
   assert.strictEqual(E.moveLabel(st, mv), 'Ng1-f3↔d1');
   let a = E.applyMove(st, mv);
   assert.strictEqual(a.board[21], 'wQ'); assert.strictEqual(a.board[3], 'wN'); assert.strictEqual(a.board[6], '');
-  // Castling needs the corner piece to be a rook right now
+  // Castling works with any unmoved corner piece, whatever a swap turned it into
   st = fen('randomswap', 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq -');
   assert.strictEqual(E.castleMoves(st).length, 2);
-  st.board[7] = 'wN'; assert.deepStrictEqual(E.castleMoves(st).map((m) => m.to), [2]);
-  st.board[7] = 'wR'; assert.strictEqual(E.castleMoves(st).length, 2);
+  st.board[7] = 'wN'; assert.strictEqual(E.castleMoves(st).length, 2);
+  let c = E.applyMove(st, E.findLegal(st, { from: 4, to: 6 }));
+  assert.strictEqual(c.board[6], 'wK'); assert.strictEqual(c.board[5], 'wN'); assert.strictEqual(c.board[7], ''); assert.strictEqual(c.board[4], '');
+  st.board[0] = 'wQ'; c = E.applyMove(st, E.findLegal(st, { from: 4, to: 2 }));
+  assert.strictEqual(c.board[2], 'wK'); assert.strictEqual(c.board[3], 'wQ'); assert.strictEqual(c.board[0], '');
+  // ...but not once that corner piece has moved away and come back, or been replaced
+  st = fen('randomswap', 'r3k2r/8/8/8/8/8/8/R3K2R w Qkq -'); st.board[7] = 'wB';
+  assert.deepStrictEqual(E.castleMoves(st).map((m) => m.to), [2]);
+  // ...and never with an enemy piece that captured its way into the corner
+  st = fen('randomswap', 'r3k2r/8/8/8/8/8/8/R3K2n w Qkq -');
+  assert.deepStrictEqual(E.castleMoves(st).map((m) => m.to), [2]);
+  st = fen('randomswap', 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq -');
   assert.deepStrictEqual(E.swapCandidates(st, E.castleMoves(st)[0]), []);
   // Only one piece type left: no swap, move stands alone
   st = fen('randomswap', '4k3/8/8/8/8/8/8/R3K2R w - -');

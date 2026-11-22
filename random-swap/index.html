@@ -163,8 +163,8 @@ const other = (c) => (c === 'w' ? 'b' : 'w');
 
 function posKey(s) { return s.board.join(',') + s.turn + s.cr.join('.') + '/' + s.ep; }
 
-/* opts.castling: allow castling where it is optional. s.cr lists the rook squares that still
-   have the right; s.ep is the square a pawn just skipped with a double step, or -1. */
+/* opts.castling: allow castling where it is optional. s.cr lists the rook start squares whose
+   piece has not moved (it keeps the right even if a swap changed its type); s.ep is the square a pawn just skipped with a double step, or -1. */
 function newState(vk, opts) {
   const v = VARIANTS[vk];
   const b = new Array(v.cols * v.rows).fill('');
@@ -284,7 +284,9 @@ function castleMoves(s) {
   if (k < 0 || isAttacked(s, k, foe)) return out;
   const row = Math.floor(k / s.cols), kc = k % s.cols;
   for (const r of s.cr) {
-    if (Math.floor(r / s.cols) !== row || s.board[r] !== me + 'R') continue;
+    // s.cr only holds corners whose original piece never moved and was never captured. In swap
+    // variants that piece may no longer be a rook; it can still castle.
+    if (Math.floor(r / s.cols) !== row || !s.board[r] || s.board[r][0] !== me) continue;
     const dir = Math.sign(r - k), tc = kc + 2 * dir;
     if (tc < 0 || tc >= s.cols) continue;
     const kt = k + 2 * dir, rt = k + dir;
