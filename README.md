@@ -6,6 +6,15 @@ connect peer-to-peer (WebRTC via [PeerJS](https://peerjs.com)), so there is no g
 | Variant | Folder | Rules |
 | --- | --- | --- |
 | Los Alamos | `los-alamos/` | 6×6, no bishops, no en passant, no pawn double-step; castling optional |
+| Random Swap | `random-swap/` | Classic 8×8 chess plus the swap rule below |
+
+**Random Swap.** All classic rules apply (castling, en passant, pawn double-step). In addition,
+after you move a rook, bishop, knight or queen, it swaps type with another of your rooks,
+bishops, knights or queens, picked at random among those of a different type. The two pieces
+stay on their squares; only what they are changes. Pawn and king moves, castling and
+promotions never trigger a swap. If you have no piece of a different type, nothing happens.
+Checks and checkmate are judged after the swap. You may castle with an unmoved corner piece
+only while it is currently a rook.
 
 **Castling option.** Original Los Alamos chess has no castling. The game creator can switch it on:
 the king moves two squares toward a rook and that rook lands on the square the king crossed

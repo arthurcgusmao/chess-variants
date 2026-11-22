@@ -47,7 +47,7 @@ assert.strictEqual(E.outcome(m).over, 'material');
 // Random playouts: invariants hold and games terminate or hit the cap
 let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
 const tally = {};
-for (const vk of Object.keys(E.VARIANTS)) {
+for (const vk of ['losalamos', 'norooks', 'gardner']) {
   for (let g = 0; g < 150; g++) {
     let st = E.newState(vk), n = 0, out = E.outcome(st);
     while (!out.over && n < 400) {
@@ -145,4 +145,103 @@ console.log('engine tests passed', tally);
   }
   assert.ok(n > 50, 'castling rarely happened: ' + n);
   console.log('castling tests passed; castles in playouts:', n);
+})();
+
+// ---------- classic 8x8 rules (perft against published node counts) ----------
+(function () {
+  function fen(vk, str) {
+    const [rowsStr, turn, cas, ep] = str.split(' ');
+    const st = E.newState(vk); st.board.fill('');
+    rowsStr.split('/').forEach((row, ri) => {
+      let c = 0; const r = 7 - ri;
+      for (const ch of row) {
+        if (/\d/.test(ch)) { c += Number(ch); continue; }
+        st.board[r * 8 + c++] = (ch === ch.toUpperCase() ? 'w' : 'b') + ch.toUpperCase();
+      }
+    });
+    st.turn = turn; st.cr = [];
+    if (cas.includes('Q')) st.cr.push(0); if (cas.includes('K')) st.cr.push(7);
+    if (cas.includes('q')) st.cr.push(56); if (cas.includes('k')) st.cr.push(63);
+    st.ep = ep === '-' ? -1 : 'abcdefgh'.indexOf(ep[0]) + (Number(ep[1]) - 1) * 8;
+    st.keys = []; return st;
+  }
+  function perft(st, d) {
+    const mv = E.legalMoves(st);
+    if (d === 1) return mv.length;
+    let n = 0; for (const m of mv) n += perft(E.applyMove(st, m), d - 1); return n;
+  }
+  const cases = [
+    ['rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -', [20, 400, 8902]],
+    ['r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -', [48, 2039, 97862]],   // castling, pins
+    ['8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - -', [14, 191, 2812, 43238]],                           // en passant
+    ['rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ -', [44, 1486, 62379]],                // promotions
+  ];
+  for (const [f, counts] of cases) counts.forEach((want, i) => assert.strictEqual(perft(fen('classic', f), i + 1), want, f + ' depth ' + (i + 1)));
+  assert.deepStrictEqual(E.newState('classic').cr, [0, 7, 56, 63]);
+  // Los Alamos still has no double step or en passant
+  assert.strictEqual(E.legalMoves(E.newState('losalamos')).length, 10);
+
+  // ---------- random swap ----------
+  let st = E.newState('randomswap');
+  // Pawn and king moves never swap
+  assert.deepStrictEqual(E.swapCandidates(st, E.findBase(st, { from: 12, to: 28 })), []);
+  assert.ok(E.findLegal(st, { from: 12, to: 28 })); assert.ok(!E.findLegal(st, { from: 12, to: 28, swap: 0 }));
+  // Knight g1-f3: partners are own R/B/Q (a1,c1,d1,f1,h1), never the other knight, pawns or king
+  const nf3 = E.findBase(st, { from: 6, to: 21 });
+  assert.deepStrictEqual(E.swapCandidates(st, nf3), [0, 2, 3, 5, 7]);
+  assert.ok(!E.findLegal(st, { from: 6, to: 21 }), 'swap is mandatory when a partner exists');
+  assert.ok(!E.findLegal(st, { from: 6, to: 21, swap: 1 })); assert.ok(!E.findLegal(st, { from: 6, to: 21, swap: 4 }));
+  assert.ok(!E.findLegal(st, { from: 6, to: 21, swap: 59 }));
+  const mv = E.findLegal(st, { from: 6, to: 21, swap: 3 });
+  assert.strictEqual(E.moveLabel(st, mv), 'Ng1-f3↔d1');
+  let a = E.applyMove(st, mv);
+  assert.strictEqual(a.board[21], 'wQ'); assert.strictEqual(a.board[3], 'wN'); assert.strictEqual(a.board[6], '');
+  // Castling needs the corner piece to be a rook right now
+  st = fen('randomswap', 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq -');
+  assert.strictEqual(E.castleMoves(st).length, 2);
+  st.board[7] = 'wN'; assert.deepStrictEqual(E.castleMoves(st).map((m) => m.to), [2]);
+  st.board[7] = 'wR'; assert.strictEqual(E.castleMoves(st).length, 2);
+  assert.deepStrictEqual(E.swapCandidates(st, E.castleMoves(st)[0]), []);
+  // Only one piece type left: no swap, move stands alone
+  st = fen('randomswap', '4k3/8/8/8/8/8/8/R3K2R w - -');
+  assert.deepStrictEqual(E.swapCandidates(st, E.findBase(st, { from: 0, to: 8 })), []);
+  assert.ok(E.findLegal(st, { from: 0, to: 8 }));
+  // Check is judged after the swap: Ra1-a8 would check along the rank, but it becomes a knight
+  st = fen('randomswap', '4k3/8/8/8/8/8/8/R3K1N1 w - -');
+  const m2 = E.findLegal(st, { from: 0, to: 56, swap: 6 });
+  assert.strictEqual(E.outcome(E.applyMove(st, m2)).check, false);
+  assert.strictEqual(E.moveLabel(st, m2), 'Ra1-a8↔g1');
+  // and the reverse: a knight move that becomes a rook check
+  st = fen('randomswap', '4k3/8/8/8/8/8/8/1N2K2R w - -');
+  const m3 = E.findLegal(st, { from: 1, to: 16 + 0, swap: 7 });   // Nb1-a3, swaps with Rh1 -> h1 knight, a3 rook: no check
+  assert.strictEqual(E.outcome(E.applyMove(st, m3)).check, false);
+  st = fen('randomswap', 'k7/8/8/8/8/8/8/1N2K2R w - -');
+  const m4 = E.findLegal(st, { from: 1, to: 16, swap: 7 });        // a3 becomes a rook facing Ka8
+  assert.strictEqual(E.outcome(E.applyMove(st, m4)).check, true);
+  assert.strictEqual(E.moveLabel(st, m4), 'Nb1-a3↔h1+');
+
+  // Random playouts: swaps keep material, never endanger the mover, games stay consistent
+  let seed = 4242, swaps = 0, over = {}; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const material = (b, c) => b.filter((p) => p && p[0] === c).map((p) => p[1]).sort().join('');
+  for (let g = 0; g < 60; g++) {
+    let s2 = E.newState('randomswap'), ply = 0, out = E.outcome(s2);
+    while (!out.over && ply < 200) {
+      const bases = E.legalMoves(s2); const base = bases[Math.floor(rnd() * bases.length)];
+      const c = E.swapCandidates(s2, base);
+      const raw = c.length ? Object.assign({}, base, { swap: c[Math.floor(rnd() * c.length)] }) : base;
+      const full = E.findLegal(s2, raw); assert.ok(full, 'full move rejected');
+      E.moveLabel(s2, full);
+      const mover = s2.turn, before = material(s2.board, mover);
+      const afterBase = material(E.applyMove(s2, base).board, mover);
+      s2 = E.applyMove(s2, full); ply++; if (full.swap !== undefined) swaps++;
+      assert.strictEqual(material(s2.board, mover), afterBase, 'swap changed material');
+      if (!full.promo) assert.strictEqual(afterBase, before);
+      assert.ok(!E.inCheck(s2, mover), 'mover in check after swap');
+      assert.strictEqual(s2.board.filter((p) => p === 'wK').length, 1); assert.strictEqual(s2.board.filter((p) => p === 'bK').length, 1);
+      out = E.outcome(s2);
+    }
+    over[out.over || 'cap'] = (over[out.over || 'cap'] || 0) + 1;
+  }
+  assert.ok(swaps > 1000);
+  console.log('classic + random-swap tests passed; swaps in playouts:', swaps, JSON.stringify(over));
 })();

@@ -117,6 +117,38 @@ try:
         # lobby shows the option
         lob = ctx.new_page(); lob.goto(URL); lob.screenshot(path=str(SHOTS / 'shot_lobby.png')); lob.close()
         h2.close(); g3.close()
+        # --- Random Swap page: classic 8x8 with the swap rule ---
+        SWAP = URL.replace('/los-alamos/', '/random-swap/')
+        board = "JSON.stringify(window.__G.state.board)"
+        rs = ctx.new_page(); rs.on('pageerror', lambda e: errors.append('rs ' + str(e)))
+        rs.goto(SWAP); assert rs.locator('#castle-field').is_hidden(); assert rs.locator('#variant-field').is_hidden()
+        rs.screenshot(path=str(SHOTS / 'shot_swap_lobby.png'))
+        rs.click('#create'); wait_text(rs, '#link', 'Waiting for opponent')
+        assert rs.locator('#board .sq').count() == 64
+        rg = ctx.new_page(); rg.on('pageerror', lambda e: errors.append('rg ' + str(e)))
+        rg.goto(rs.input_value('#invite-url')); wait_text(rg, '#link', 'Connected'); wait_text(rg, '#variant', 'Random Swap')
+        click_sq(rs, 12); assert rs.locator('#board .target').count() == 2      # e2: e3 and e4
+        click_sq(rs, 28); wait_text(rg, '#status', 'Your move'); assert rs.locator('#note').is_hidden()
+        move(rg, 52, 36); wait_text(rs, '#status', 'Your move')                  # e7-e5
+        move(rs, 6, 21); wait_text(rg, '#status', 'Your move')                   # Ng1-f3, must swap
+        m = rs.evaluate("window.__G.moves[2]"); assert m['swap'] in (0, 2, 3, 5, 7), m
+        assert rs.evaluate("window.__G.state.board[21]") != 'wN' and rs.evaluate(f"window.__G.state.board[{m['swap']}]") == 'wN'
+        assert rs.evaluate(board) == rg.evaluate(board)
+        wait_text(rs, '#note', 'Swapped: f3 is now a'); wait_text(rg, '#note', 'Swapped: f3 is now a'); wait_text(rg, '#moves', '↔')
+        assert rs.locator('#board .swap').count() == 2
+        rs.screenshot(path=str(SHOTS / 'shot_swap.png'))
+        # a swap partner the rules don't allow is rejected over the wire (black knight b8-c6 with a pawn)
+        rg.evaluate("window.__G.conn.send({t:'move', g: window.__G.gameNo, i: 3, m:{from:57,to:42,swap:48}})")
+        time.sleep(0.3); assert nmoves(rs) == 3
+        rg.evaluate("window.__G.conn.send({t:'move', g: window.__G.gameNo, i: 3, m:{from:57,to:42}})")
+        time.sleep(0.3); assert nmoves(rs) == 3
+        wait_text(rg, '#status', 'Your move'); move(rg, 57, 42); wait_text(rs, '#status', 'Your move'); assert nmoves(rs) == 4
+        assert rs.evaluate(board) == rg.evaluate(board)
+        before = rs.evaluate(board)
+        rg.reload(); wait_text(rg, '#link', 'Connected'); wait_text(rg, '#status', 'Opponent'); assert rg.evaluate(board) == before
+        rs.reload(); wait_text(rs, '#link', 'Connected'); wait_text(rs, '#status', 'Your move'); assert rs.evaluate(board) == before
+        rg.screenshot(path=str(SHOTS / 'shot_swap_black.png'))
+        rs.close(); rg.close()
         # guest opening the room before the host is online keeps retrying, then connects
         ctx2 = br.new_context(); ctx2.add_init_script(FAKE)
         g2 = ctx2.new_page(); g2.goto(URL + '?room=nobodyhere'); wait_text(g2, '#link', 'Host is not online')

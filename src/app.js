@@ -22,6 +22,7 @@
     return g;
   }
   const NAME = { w: 'White', b: 'Black' };
+  const PIECE = { K: 'king', Q: 'queen', R: 'rook', B: 'bishop', N: 'knight', P: 'pawn' };
   const $ = (id) => document.getElementById(id);
 
   const G = {
@@ -77,8 +78,14 @@
   }
 
   function playLocalMove(m) {
-    const legal = findLegal(G.state, m);
-    if (!legal || !canMove()) return;
+    if (!canMove()) return;
+    const base = findBase(G.state, m);
+    if (!base) return;
+    // Swap variants: the mover's browser rolls the dice and sends the result with the move.
+    const cands = swapCandidates(G.state, base);
+    const legal = findLegal(G.state, cands.length
+      ? Object.assign({}, base, { swap: cands[Math.floor(Math.random() * cands.length)] }) : base);
+    if (!legal) return;
     G.labels.push(moveLabel(G.state, legal));
     G.moves.push(legal); G.state = applyMove(G.state, legal); G.sel = null; G.promo = null;
     save();
@@ -233,6 +240,7 @@
         b.className = 'sq ' + ((row + col) % 2 === 0 ? 'dark' : 'light');
         if (i === G.sel) b.classList.add('sel');
         if (last && (i === last.from || i === last.to)) b.classList.add('last');
+        if (last && last.swap !== undefined && (i === last.swap || i === last.to)) b.classList.add('swap');
         if (i === checked) b.classList.add('check');
         if (targets.includes(i)) b.classList.add(p ? 'capture' : 'target');
         b.dataset.sq = i;
@@ -247,6 +255,12 @@
     }
 
     $('status').textContent = statusText();
+    const note = $('note');
+    note.hidden = !(last && last.swap !== undefined);
+    if (!note.hidden) {
+      note.textContent = 'Swapped: ' + sqName(s, last.to) + ' is now a ' + PIECE[s.board[last.to][1]] +
+        ', ' + sqName(s, last.swap) + ' is now a ' + PIECE[s.board[last.swap][1]] + '.';
+    }
     $('variant').textContent = VARIANTS[s.vk].name + (G.opts.castling ? ' · castling' : '') + (me ? ' · you are ' + NAME[me] : ' · one device');
     $('invite').hidden = !(G.mode === 'host' && G.link !== 'connected');
     $('resign').hidden = !!r.over || (online && G.link !== 'connected');
@@ -301,6 +315,11 @@
       o.value = k; o.textContent = VARIANTS[k].name + ' — ' + VARIANTS[k].blurb; sel.appendChild(o);
     }
 
+    // The castling switch only applies to variants where castling is optional.
+    const syncOptions = () => { $('castle-field').hidden = !VARIANTS[sel.value].castlingOptional; };
+    const wantCastling = () => !!VARIANTS[sel.value].castlingOptional && $('opt-castling').checked;
+    sel.addEventListener('change', syncOptions); syncOptions();
+
     $('board').addEventListener('click', (e) => {
       const b = e.target.closest('[data-sq]'); if (b) onSquare(Number(b.dataset.sq));
     });
@@ -334,13 +353,13 @@
       const abc = 'abcdefghjkmnpqrstuvwxyz23456789';
       let code = ''; for (let i = 0; i < 8; i++) code += abc[Math.floor(Math.random() * abc.length)];
       G.mode = 'host'; G.room = code; G.hostColor = color; G.gameNo = 1; G.resigned = null;
-      rebuild(sel.value, [], { castling: $('opt-castling').checked }); save();
+      rebuild(sel.value, [], { castling: wantCastling() }); save();
       const url = location.href.split(/[?#]/)[0] + '?room=' + code + '&host=1';
       try { history.pushState(null, '', url); } catch (e) { location.href = url; return; }
       enterOnline();
     });
     $('local').addEventListener('click', () => {
-      G.mode = 'local'; G.resigned = null; rebuild(sel.value, [], { castling: $('opt-castling').checked }); showGame();
+      G.mode = 'local'; G.resigned = null; rebuild(sel.value, [], { castling: wantCastling() }); showGame();
     });
 
     const q = new URLSearchParams(location.search);

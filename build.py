@@ -10,6 +10,11 @@ PAGES = {
         'sub': '6×6 chess without bishops, for two players, browser to browser.',
         'variants': ['losalamos'],
     },
+    'random-swap': {
+        'title': 'Random Swap Chess',
+        'sub': 'Classic 8×8 chess, except the piece you move swaps type with another of your pieces at random.',
+        'variants': ['randomswap'],
+    },
 }
 
 tpl = (ROOT / 'src/index.tpl.html').read_text()
