@@ -27,6 +27,9 @@ select, input[type=text] { width: 100%; font: inherit; color: inherit; backgroun
 .btn { font: inherit; font-weight: 600; border-radius: 8px; padding: 11px 14px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn:focus-visible, .sq:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+label.check { display: flex; gap: 10px; align-items: flex-start; text-transform: none; letter-spacing: 0; font-size: 1rem; color: var(--ink); margin: 2px 0 16px; cursor: pointer; }
+label.check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+label.check small { display: block; color: var(--muted); font-size: .82rem; line-height: 1.35; margin-top: 2px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .row .btn { flex: 1 1 auto; }
 
@@ -86,6 +89,10 @@ select, input[type=text] { width: 100%; font: inherit; color: inherit; backgroun
         <option value="b">Black</option>
         <option value="r">Random</option>
       </select>
+      <label class="check" for="opt-castling">
+        <input type="checkbox" id="opt-castling">
+        <span>Allow castling<small>King moves two squares toward a rook; the rook lands on the square the king crossed.</small></span>
+      </label>
       <div class="row">
         <button class="btn primary" id="create" type="button">Create online game</button>
         <button class="btn" id="local" type="button">Play on this device</button>

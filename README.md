@@ -5,7 +5,13 @@ connect peer-to-peer (WebRTC via [PeerJS](https://peerjs.com)), so there is no g
 
 | Variant | Folder | Rules |
 | --- | --- | --- |
-| Los Alamos | `los-alamos/` | 6×6, no bishops, no castling, no en passant, no pawn double-step |
+| Los Alamos | `los-alamos/` | 6×6, no bishops, no en passant, no pawn double-step; castling optional |
+
+**Castling option.** Original Los Alamos chess has no castling. The game creator can switch it on:
+the king moves two squares toward a rook and that rook lands on the square the king crossed
+(short: Kd1-f1 with Rf1-e1; long: Kd1-b1 with Ra1-c1). The usual conditions apply: neither piece
+has moved, the squares between them are empty, and the king is not in check and does not cross
+or land on an attacked square.
 
 ## Play
 

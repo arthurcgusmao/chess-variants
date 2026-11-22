@@ -93,6 +93,30 @@ try:
         guest.click('#rematch'); wait_text(guest, '#variant', 'you are White'); wait_text(host, '#variant', 'you are Black')
         assert nmoves(host) == 0 and nmoves(guest) == 0
         move(guest, 7, 13); wait_text(host, '#status', 'Your move')
+        # --- castling option: chosen by the creator, synced to the guest, survives reloads ---
+        assert host.evaluate("window.__G.opts.castling") is False
+        h2 = ctx.new_page(); h2.on('pageerror', lambda e: errors.append('h2 ' + str(e)))
+        h2.goto(URL); h2.check('#opt-castling'); h2.click('#create'); wait_text(h2, '#link', 'Waiting for opponent')
+        g3 = ctx.new_page(); g3.on('pageerror', lambda e: errors.append('g3 ' + str(e)))
+        g3.goto(h2.input_value('#invite-url')); wait_text(g3, '#link', 'Connected'); wait_text(g3, '#variant', 'castling')
+        move(h2, 4, 17); wait_text(g3, '#status', 'Your move')          # Ne1-f3
+        move(g3, 24, 18); wait_text(h2, '#status', 'Your move')          # a5-a4
+        click_sq(h2, 3); assert h2.locator('#board [data-sq="5"].capture').count() == 1
+        h2.screenshot(path=str(SHOTS / 'shot_castle_target.png'))
+        click_sq(h2, 5); wait_text(g3, '#status', 'Your move')           # O-O
+        for pg in (h2, g3):
+            assert pg.evaluate("[window.__G.state.board[5], window.__G.state.board[4], window.__G.state.board[3]].join()") == 'wK,wR,'
+            wait_text(pg, '#moves', 'O-O')
+        g3.reload(); wait_text(g3, '#link', 'Connected'); wait_text(g3, '#moves', 'O-O'); assert nmoves(g3) == 3
+        h2.reload(); wait_text(h2, '#link', 'Connected'); wait_text(h2, '#variant', 'castling'); assert nmoves(h2) == 3
+        h2.screenshot(path=str(SHOTS / 'shot_castled.png'))
+        # a castle sent over the wire in a game without the option is rejected
+        n0 = nmoves(host)
+        guest.evaluate("window.__G.conn.send({t:'move', g: window.__G.gameNo, i: window.__G.moves.length, m:{from:3,to:5}})")
+        time.sleep(0.3); assert nmoves(host) == n0
+        # lobby shows the option
+        lob = ctx.new_page(); lob.goto(URL); lob.screenshot(path=str(SHOTS / 'shot_lobby.png')); lob.close()
+        h2.close(); g3.close()
         # guest opening the room before the host is online keeps retrying, then connects
         ctx2 = br.new_context(); ctx2.add_init_script(FAKE)
         g2 = ctx2.new_page(); g2.goto(URL + '?room=nobodyhere'); wait_text(g2, '#link', 'Host is not online')

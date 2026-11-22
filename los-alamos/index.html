@@ -27,6 +27,9 @@ select, input[type=text] { width: 100%; font: inherit; color: inherit; backgroun
 .btn { font: inherit; font-weight: 600; border-radius: 8px; padding: 11px 14px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn:focus-visible, .sq:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+label.check { display: flex; gap: 10px; align-items: flex-start; text-transform: none; letter-spacing: 0; font-size: 1rem; color: var(--ink); margin: 2px 0 16px; cursor: pointer; }
+label.check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+label.check small { display: block; color: var(--muted); font-size: .82rem; line-height: 1.35; margin-top: 2px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .row .btn { flex: 1 1 auto; }
 
@@ -86,6 +89,10 @@ select, input[type=text] { width: 100%; font: inherit; color: inherit; backgroun
         <option value="b">Black</option>
         <option value="r">Random</option>
       </select>
+      <label class="check" for="opt-castling">
+        <input type="checkbox" id="opt-castling">
+        <span>Allow castling<small>King moves two squares toward a rook; the rook lands on the square the king crossed.</small></span>
+      </label>
       <div class="row">
         <button class="btn primary" id="create" type="button">Create online game</button>
         <button class="btn" id="local" type="button">Play on this device</button>
@@ -129,8 +136,8 @@ select, input[type=text] { width: 100%; font: inherit; color: inherit; backgroun
 <script>'use strict';
 /* ---------- Rules engine: pure functions, no DOM. Board-size agnostic. ----------
    Add a variant by adding an entry here. `back` is White's back rank from the
-   a-file; Black mirrors it. All variants: pawns move one step, no castling,
-   no en passant. */
+   a-file; Black mirrors it. All variants: pawns move one step, no en passant.
+   Castling is a per-game option (see castleMoves). */
 const VARIANTS = {
   losalamos: { name: 'Los Alamos 6×6', blurb: 'No bishops', cols: 6, rows: 6, back: 'RNQKNR', promo: ['Q', 'R', 'N'] },
   norooks:   { name: 'Mini 6×6', blurb: 'No rooks', cols: 6, rows: 6, back: 'NBQKBN', promo: ['Q', 'B', 'N'] },
@@ -142,9 +149,10 @@ const DIAG = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 const JUMPS = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
 const other = (c) => (c === 'w' ? 'b' : 'w');
 
-function posKey(s) { return s.board.join(',') + s.turn; }
+function posKey(s) { return s.board.join(',') + s.turn + s.cr.join('.'); }
 
-function newState(vk) {
+/* opts.castling: allow castling. s.cr lists the rook squares that still have the right. */
+function newState(vk, opts) {
   const v = VARIANTS[vk];
   const b = new Array(v.cols * v.rows).fill('');
   for (let c = 0; c < v.cols; c++) {
@@ -153,7 +161,10 @@ function newState(vk) {
     b[(v.rows - 2) * v.cols + c] = 'bP';
     b[(v.rows - 1) * v.cols + c] = 'b' + v.back[c];
   }
-  const s = { vk, cols: v.cols, rows: v.rows, board: b, turn: 'w', keys: [] };
+  const castling = !!(opts && opts.castling);
+  const cr = [];
+  if (castling) for (let i = 0; i < b.length; i++) if (b[i] && b[i][1] === 'R') cr.push(i);
+  const s = { vk, cols: v.cols, rows: v.rows, board: b, turn: 'w', keys: [], castling, cr };
   s.keys.push(posKey(s));
   return s;
 }
@@ -219,11 +230,53 @@ function pseudoMoves(s, from) {
 function applyMove(s, m) {
   const b = s.board.slice();
   const p = b[m.from];
-  b[m.to] = m.promo ? p[0] + m.promo : p;
-  b[m.from] = '';
-  const n = { vk: s.vk, cols: s.cols, rows: s.rows, board: b, turn: other(s.turn), keys: s.keys.slice() };
+  let cr = s.cr;
+  if (m.castle !== undefined) {
+    const rook = b[m.castle];
+    b[m.from] = ''; b[m.castle] = '';
+    b[m.to] = p; b[m.from + Math.sign(m.to - m.from)] = rook;
+  } else {
+    b[m.to] = m.promo ? p[0] + m.promo : p;
+    b[m.from] = '';
+  }
+  if (cr.length) {
+    // A right is lost when its rook moves or is captured, or when that side's king moves.
+    const homeRow = p[1] === 'K' ? (p[0] === 'w' ? 0 : s.rows - 1) : -1;
+    cr = cr.filter((r) => r !== m.from && r !== m.to && Math.floor(r / s.cols) !== homeRow);
+  }
+  const n = { vk: s.vk, cols: s.cols, rows: s.rows, board: b, turn: other(s.turn), keys: s.keys.slice(), castling: s.castling, cr };
   n.keys.push(posKey(n));
   return n;
+}
+
+/* Castling, generalised to any board width: the king moves two squares toward a rook and
+   that rook lands on the square the king crossed. Needs: neither piece has moved, every
+   square between them is empty, the king is not in check, and it neither crosses nor
+   lands on an attacked square. On 6x6 Los Alamos (king on d): short = Kd1-f1 + Rf1-e1,
+   long = Kd1-b1 + Ra1-c1. */
+function castleMoves(s) {
+  const out = [];
+  if (!s.castling || !s.cr.length) return out;
+  const me = s.turn, foe = other(me);
+  const k = s.board.indexOf(me + 'K');
+  if (k < 0 || isAttacked(s, k, foe)) return out;
+  const row = Math.floor(k / s.cols), kc = k % s.cols;
+  for (const r of s.cr) {
+    if (Math.floor(r / s.cols) !== row || s.board[r] !== me + 'R') continue;
+    const dir = Math.sign(r - k), tc = kc + 2 * dir;
+    if (tc < 0 || tc >= s.cols) continue;
+    const kt = k + 2 * dir, rt = k + dir;
+    let clear = true;
+    for (let q = k + dir; q !== r; q += dir) if (s.board[q]) clear = false;
+    for (const q of [kt, rt]) if (q !== k && q !== r && s.board[q]) clear = false;
+    if (!clear) continue;
+    const lifted = { cols: s.cols, rows: s.rows, board: s.board.slice() };
+    lifted.board[k] = '';
+    if (isAttacked(lifted, rt, foe)) continue;
+    const m = { from: k, to: kt, castle: r };
+    if (!inCheck(applyMove(s, m), me)) out.push(m);
+  }
+  return out;
 }
 
 function legalMoves(s, onlyFrom) {
@@ -233,6 +286,7 @@ function legalMoves(s, onlyFrom) {
     if (!s.board[i] || s.board[i][0] !== s.turn) continue;
     for (const m of pseudoMoves(s, i)) if (!inCheck(applyMove(s, m), s.turn)) out.push(m);
   }
+  for (const m of castleMoves(s)) if (onlyFrom === undefined || onlyFrom === m.from) out.push(m);
   return out;
 }
 
@@ -263,7 +317,8 @@ function sqName(s, i) { return 'abcdefghij'[i % s.cols] + (Math.floor(i / s.cols
 /* Long notation for a legal move, e.g. Nb1-c3, a5xb6=Q+ */
 function moveLabel(s, m) {
   const p = s.board[m.from];
-  let t = (p[1] === 'P' ? '' : p[1]) + sqName(s, m.from) + (s.board[m.to] ? 'x' : '-') + sqName(s, m.to);
+  let t = m.castle !== undefined ? (m.to > m.from ? 'O-O' : 'O-O-O')
+    : (p[1] === 'P' ? '' : p[1]) + sqName(s, m.from) + (s.board[m.to] ? 'x' : '-') + sqName(s, m.to);
   if (m.promo) t += '=' + m.promo;
   const o = outcome(applyMove(s, m));
   if (o.over === 'checkmate') t += '#'; else if (o.check) t += '+';
@@ -271,7 +326,7 @@ function moveLabel(s, m) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { VARIANTS, newState, legalMoves, findLegal, applyMove, outcome, inCheck, moveLabel, sqName, other };
+  module.exports = { VARIANTS, newState, castleMoves, legalMoves, findLegal, applyMove, outcome, inCheck, moveLabel, sqName, other };
 }
 </script>
 <script>'use strict';
@@ -304,6 +359,7 @@ if (typeof module !== 'undefined') {
     mode: null,          // 'local' | 'host' | 'guest'
     room: null,
     vk: 'losalamos',
+    opts: { castling: false },   // per-game rule options, chosen by whoever creates the game
     hostColor: 'w',
     gameNo: 1,
     moves: [],           // [{from,to,promo?}]
@@ -318,7 +374,7 @@ if (typeof module !== 'undefined') {
     if (G.mode === 'local') return;
     try {
       localStorage.setItem(storeKey(), JSON.stringify({
-        vk: G.vk, hostColor: G.hostColor, gameNo: G.gameNo, moves: G.moves, resigned: G.resigned,
+        vk: G.vk, opts: G.opts, hostColor: G.hostColor, gameNo: G.gameNo, moves: G.moves, resigned: G.resigned,
       }));
     } catch (e) { /* private mode etc. */ }
   }
@@ -327,16 +383,17 @@ if (typeof module !== 'undefined') {
   }
 
   /* ---------- game state ---------- */
-  function rebuild(vk, moves) {
+  function rebuild(vk, moves, opts) {
     if (!VARIANTS[vk] || !Array.isArray(moves)) return false;
-    let s = newState(vk); const labels = []; const clean = [];
+    const o = { castling: !!(opts || G.opts).castling };
+    let s = newState(vk, o); const labels = []; const clean = [];
     for (const raw of moves) {
       if (outcome(s).over) return false;
       const m = findLegal(s, raw);
       if (!m) return false;
       labels.push(moveLabel(s, m)); clean.push(m); s = applyMove(s, m);
     }
-    G.vk = vk; G.moves = clean; G.state = s; G.labels = labels; G.sel = null; G.promo = null;
+    G.vk = vk; G.opts = o; G.moves = clean; G.state = s; G.labels = labels; G.sel = null; G.promo = null;
     return true;
   }
   const myColor = () => (G.mode === 'local' ? null : G.mode === 'host' ? G.hostColor : other(G.hostColor));
@@ -363,7 +420,7 @@ if (typeof module !== 'undefined') {
   /* ---------- networking ---------- */
   function send(msg) { if (G.conn && G.conn.open) G.conn.send(msg); }
   function sendInit() {
-    send({ t: 'init', vk: G.vk, hostColor: G.hostColor, g: G.gameNo, moves: G.moves, resigned: G.resigned });
+    send({ t: 'init', vk: G.vk, opts: G.opts, hostColor: G.hostColor, g: G.gameNo, moves: G.moves, resigned: G.resigned });
   }
   function setLink(v) { G.link = v; render(); }
   function later(fn, ms) { clearTimeout(G.retry); G.retry = setTimeout(fn, ms); }
@@ -418,7 +475,7 @@ if (typeof module !== 'undefined') {
     if (c !== G.conn || !d || typeof d !== 'object') return;
     if (d.t === 'init' && G.mode === 'guest') {
       const mine = { g: G.gameNo, vk: G.vk, moves: G.moves.slice(), had: !!G.state };
-      if (!rebuild(d.vk, d.moves)) return;
+      if (!rebuild(d.vk, d.moves, d.opts || {})) return;
       G.hostColor = d.hostColor === 'b' ? 'b' : 'w'; G.gameNo = d.g; G.resigned = d.resigned || null;
       // If the host lost moves we still have (e.g. it cleared its storage), offer ours back.
       if (mine.had && mine.g === d.g && mine.vk === d.vk && mine.moves.length > d.moves.length) {
@@ -521,7 +578,7 @@ if (typeof module !== 'undefined') {
     }
 
     $('status').textContent = statusText();
-    $('variant').textContent = VARIANTS[s.vk].name + (me ? ' · you are ' + NAME[me] : ' · one device');
+    $('variant').textContent = VARIANTS[s.vk].name + (G.opts.castling ? ' · castling' : '') + (me ? ' · you are ' + NAME[me] : ' · one device');
     $('invite').hidden = !(G.mode === 'host' && G.link !== 'connected');
     $('resign').hidden = !!r.over || (online && G.link !== 'connected');
     $('rematch').hidden = !r.over || (online && G.link !== 'connected');
@@ -608,13 +665,13 @@ if (typeof module !== 'undefined') {
       const abc = 'abcdefghjkmnpqrstuvwxyz23456789';
       let code = ''; for (let i = 0; i < 8; i++) code += abc[Math.floor(Math.random() * abc.length)];
       G.mode = 'host'; G.room = code; G.hostColor = color; G.gameNo = 1; G.resigned = null;
-      rebuild(sel.value, []); save();
+      rebuild(sel.value, [], { castling: $('opt-castling').checked }); save();
       const url = location.href.split(/[?#]/)[0] + '?room=' + code + '&host=1';
       try { history.pushState(null, '', url); } catch (e) { location.href = url; return; }
       enterOnline();
     });
     $('local').addEventListener('click', () => {
-      G.mode = 'local'; G.resigned = null; rebuild(sel.value, []); showGame();
+      G.mode = 'local'; G.resigned = null; rebuild(sel.value, [], { castling: $('opt-castling').checked }); showGame();
     });
 
     const q = new URLSearchParams(location.search);
@@ -622,9 +679,9 @@ if (typeof module !== 'undefined') {
     if (room) {
       G.room = room; G.mode = q.get('host') === '1' ? 'host' : 'guest';
       const saved = load(room, G.mode);
-      if (saved && rebuild(saved.vk, saved.moves)) {
+      if (saved && rebuild(saved.vk, saved.moves, saved.opts || {})) {
         G.hostColor = saved.hostColor === 'b' ? 'b' : 'w'; G.gameNo = saved.gameNo || 1; G.resigned = saved.resigned || null;
-      } else if (G.mode === 'host') { rebuild((window.PAGE_VARIANTS || ['losalamos'])[0], []); }
+      } else if (G.mode === 'host') { rebuild((window.PAGE_VARIANTS || ['losalamos'])[0], [], {}); }
       enterOnline();
     }
   }

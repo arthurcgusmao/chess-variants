@@ -65,3 +65,84 @@ for (const vk of Object.keys(E.VARIANTS)) {
   }
 }
 console.log('engine tests passed', tally);
+
+// ---------- castling option ----------
+(function () {
+  const sq = (st, n) => 'abcdefgh'.indexOf(n[0]) + (Number(n[1]) - 1) * st.cols;
+  function cpos(pieces, turn, rights) {
+    const st = E.newState('losalamos', { castling: true }); st.board.fill('');
+    for (const [n, p] of Object.entries(pieces)) st.board[sq(st, n)] = p;
+    st.turn = turn; st.keys = []; st.cr = rights.map((n) => sq(st, n)); return st;
+  }
+  const castles = (st) => E.legalMoves(st).filter((m) => m.castle !== undefined);
+
+  // Off by default, and no castle available from the start position even when on
+  assert.strictEqual(E.newState('losalamos').castling, false);
+  let st = E.newState('losalamos', { castling: true });
+  assert.deepStrictEqual(st.cr, [0, 5, 30, 35]);
+  assert.strictEqual(E.legalMoves(st).length, 10);
+
+  // Both sides available on an empty back rank
+  st = cpos({ a1: 'wR', d1: 'wK', f1: 'wR', d6: 'bK' }, 'w', ['a1', 'f1']);
+  assert.strictEqual(castles(st).length, 2);
+  let short = E.findLegal(st, { from: 3, to: 5 }), long = E.findLegal(st, { from: 3, to: 1 });
+  assert.ok(short && long);
+  assert.strictEqual(E.moveLabel(st, short), 'O-O'); assert.strictEqual(E.moveLabel(st, long), 'O-O-O');
+  let a = E.applyMove(st, short);
+  assert.strictEqual(a.board[5], 'wK'); assert.strictEqual(a.board[4], 'wR'); assert.strictEqual(a.board[3], ''); assert.strictEqual(a.board[0], 'wR');
+  assert.deepStrictEqual(a.cr, []);
+  a = E.applyMove(st, long);
+  assert.strictEqual(a.board[1], 'wK'); assert.strictEqual(a.board[2], 'wR'); assert.strictEqual(a.board[0], ''); assert.strictEqual(a.board[3], '');
+  // Same position with the option off: no castling
+  const off = E.newState('losalamos'); off.board = st.board.slice(); off.keys = [];
+  assert.ok(!E.findLegal(off, { from: 3, to: 5 }));
+
+  // Blocked by a piece in between
+  st = cpos({ a1: 'wR', b1: 'wN', d1: 'wK', e1: 'wN', f1: 'wR', d6: 'bK' }, 'w', ['a1', 'f1']);
+  assert.strictEqual(castles(st).length, 0);
+  // Not while in check
+  st = cpos({ a1: 'wR', d1: 'wK', f1: 'wR', d5: 'bR', a6: 'bK' }, 'w', ['a1', 'f1']);
+  assert.strictEqual(castles(st).length, 0);
+  // Not across an attacked square (e1 attacked: short off; long still fine)
+  st = cpos({ a1: 'wR', d1: 'wK', f1: 'wR', e5: 'bR', a6: 'bK' }, 'w', ['a1', 'f1']);
+  assert.deepStrictEqual(castles(st).map((m) => m.to), [1]);
+  // Not onto an attacked square (b1 attacked: long off; rook passing an attacked square is fine)
+  st = cpos({ a1: 'wR', d1: 'wK', f1: 'wR', b5: 'bR', f6: 'bK' }, 'w', ['a1', 'f1']);
+  assert.deepStrictEqual(castles(st).map((m) => m.to), [5]);
+  st = cpos({ a1: 'wR', d1: 'wK', a5: 'bR', f6: 'bK' }, 'w', ['a1']);
+  assert.deepStrictEqual(castles(st).map((m) => m.to), [1]);
+  // Rights: lost by rook move, king move, and rook capture
+  st = cpos({ a1: 'wR', d1: 'wK', f1: 'wR', d6: 'bK', f6: 'bR' }, 'w', ['a1', 'f1', 'f6']);
+  assert.deepStrictEqual(E.applyMove(st, { from: 0, to: 6 }).cr, [5, 35]);
+  assert.deepStrictEqual(E.applyMove(st, { from: 3, to: 9 }).cr, [35]);
+  assert.deepStrictEqual(E.applyMove(st, { from: 5, to: 35 }).cr, [0]);
+  // King returning home does not restore the right
+  let b = E.applyMove(E.applyMove(E.applyMove(E.applyMove(st, { from: 3, to: 9 }), { from: 33, to: 32 }), { from: 9, to: 3 }), { from: 32, to: 33 });
+  assert.strictEqual(castles(b).length, 0);
+  // A king walking along the enemy back rank must not strip the enemy's rights
+  st = cpos({ a6: 'bR', f6: 'bR', d6: 'wK', d1: 'bK' }, 'w', ['a6', 'f6']);
+  assert.deepStrictEqual(E.applyMove(st, { from: 33, to: 32 }).cr, [30, 35]);
+  // Black castles too
+  st = cpos({ d1: 'wK', a6: 'bR', d6: 'bK', f6: 'bR' }, 'b', ['a6', 'f6']);
+  a = E.applyMove(st, E.findLegal(st, { from: 33, to: 35 }));
+  assert.strictEqual(a.board[35], 'bK'); assert.strictEqual(a.board[34], 'bR');
+
+  // Random playouts with castling on
+  let seed = 777, n = 0; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let g = 0; g < 300; g++) {
+    let s2 = E.newState('losalamos', { castling: true }), ply = 0, out = E.outcome(s2);
+    while (!out.over && ply < 300) {
+      const mv = E.legalMoves(s2); const cs = mv.filter((m) => m.castle !== undefined);
+      const pick = cs.length && rnd() < 0.5 ? cs[0] : mv[Math.floor(rnd() * mv.length)];
+      assert.ok(E.findLegal(s2, { from: pick.from, to: pick.to, promo: pick.promo })); E.moveLabel(s2, pick);
+      const mover = s2.turn, before = s2.board.filter(Boolean).length, cap = pick.castle === undefined && s2.board[pick.to] ? 1 : 0;
+      s2 = E.applyMove(s2, pick); ply++; if (pick.castle !== undefined) n++;
+      assert.strictEqual(s2.board.filter(Boolean).length, before - cap, 'piece count changed');
+      assert.strictEqual(s2.board.filter((p) => p === 'wK').length, 1); assert.strictEqual(s2.board.filter((p) => p === 'bK').length, 1);
+      assert.ok(!E.inCheck(s2, mover));
+      out = E.outcome(s2);
+    }
+  }
+  assert.ok(n > 50, 'castling rarely happened: ' + n);
+  console.log('castling tests passed; castles in playouts:', n);
+})();

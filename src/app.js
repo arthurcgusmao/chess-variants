@@ -28,6 +28,7 @@
     mode: null,          // 'local' | 'host' | 'guest'
     room: null,
     vk: 'losalamos',
+    opts: { castling: false },   // per-game rule options, chosen by whoever creates the game
     hostColor: 'w',
     gameNo: 1,
     moves: [],           // [{from,to,promo?}]
@@ -42,7 +43,7 @@
     if (G.mode === 'local') return;
     try {
       localStorage.setItem(storeKey(), JSON.stringify({
-        vk: G.vk, hostColor: G.hostColor, gameNo: G.gameNo, moves: G.moves, resigned: G.resigned,
+        vk: G.vk, opts: G.opts, hostColor: G.hostColor, gameNo: G.gameNo, moves: G.moves, resigned: G.resigned,
       }));
     } catch (e) { /* private mode etc. */ }
   }
@@ -51,16 +52,17 @@
   }
 
   /* ---------- game state ---------- */
-  function rebuild(vk, moves) {
+  function rebuild(vk, moves, opts) {
     if (!VARIANTS[vk] || !Array.isArray(moves)) return false;
-    let s = newState(vk); const labels = []; const clean = [];
+    const o = { castling: !!(opts || G.opts).castling };
+    let s = newState(vk, o); const labels = []; const clean = [];
     for (const raw of moves) {
       if (outcome(s).over) return false;
       const m = findLegal(s, raw);
       if (!m) return false;
       labels.push(moveLabel(s, m)); clean.push(m); s = applyMove(s, m);
     }
-    G.vk = vk; G.moves = clean; G.state = s; G.labels = labels; G.sel = null; G.promo = null;
+    G.vk = vk; G.opts = o; G.moves = clean; G.state = s; G.labels = labels; G.sel = null; G.promo = null;
     return true;
   }
   const myColor = () => (G.mode === 'local' ? null : G.mode === 'host' ? G.hostColor : other(G.hostColor));
@@ -87,7 +89,7 @@
   /* ---------- networking ---------- */
   function send(msg) { if (G.conn && G.conn.open) G.conn.send(msg); }
   function sendInit() {
-    send({ t: 'init', vk: G.vk, hostColor: G.hostColor, g: G.gameNo, moves: G.moves, resigned: G.resigned });
+    send({ t: 'init', vk: G.vk, opts: G.opts, hostColor: G.hostColor, g: G.gameNo, moves: G.moves, resigned: G.resigned });
   }
   function setLink(v) { G.link = v; render(); }
   function later(fn, ms) { clearTimeout(G.retry); G.retry = setTimeout(fn, ms); }
@@ -142,7 +144,7 @@
     if (c !== G.conn || !d || typeof d !== 'object') return;
     if (d.t === 'init' && G.mode === 'guest') {
       const mine = { g: G.gameNo, vk: G.vk, moves: G.moves.slice(), had: !!G.state };
-      if (!rebuild(d.vk, d.moves)) return;
+      if (!rebuild(d.vk, d.moves, d.opts || {})) return;
       G.hostColor = d.hostColor === 'b' ? 'b' : 'w'; G.gameNo = d.g; G.resigned = d.resigned || null;
       // If the host lost moves we still have (e.g. it cleared its storage), offer ours back.
       if (mine.had && mine.g === d.g && mine.vk === d.vk && mine.moves.length > d.moves.length) {
@@ -245,7 +247,7 @@
     }
 
     $('status').textContent = statusText();
-    $('variant').textContent = VARIANTS[s.vk].name + (me ? ' · you are ' + NAME[me] : ' · one device');
+    $('variant').textContent = VARIANTS[s.vk].name + (G.opts.castling ? ' · castling' : '') + (me ? ' · you are ' + NAME[me] : ' · one device');
     $('invite').hidden = !(G.mode === 'host' && G.link !== 'connected');
     $('resign').hidden = !!r.over || (online && G.link !== 'connected');
     $('rematch').hidden = !r.over || (online && G.link !== 'connected');
@@ -332,13 +334,13 @@
       const abc = 'abcdefghjkmnpqrstuvwxyz23456789';
       let code = ''; for (let i = 0; i < 8; i++) code += abc[Math.floor(Math.random() * abc.length)];
       G.mode = 'host'; G.room = code; G.hostColor = color; G.gameNo = 1; G.resigned = null;
-      rebuild(sel.value, []); save();
+      rebuild(sel.value, [], { castling: $('opt-castling').checked }); save();
       const url = location.href.split(/[?#]/)[0] + '?room=' + code + '&host=1';
       try { history.pushState(null, '', url); } catch (e) { location.href = url; return; }
       enterOnline();
     });
     $('local').addEventListener('click', () => {
-      G.mode = 'local'; G.resigned = null; rebuild(sel.value, []); showGame();
+      G.mode = 'local'; G.resigned = null; rebuild(sel.value, [], { castling: $('opt-castling').checked }); showGame();
     });
 
     const q = new URLSearchParams(location.search);
@@ -346,9 +348,9 @@
     if (room) {
       G.room = room; G.mode = q.get('host') === '1' ? 'host' : 'guest';
       const saved = load(room, G.mode);
-      if (saved && rebuild(saved.vk, saved.moves)) {
+      if (saved && rebuild(saved.vk, saved.moves, saved.opts || {})) {
         G.hostColor = saved.hostColor === 'b' ? 'b' : 'w'; G.gameNo = saved.gameNo || 1; G.resigned = saved.resigned || null;
-      } else if (G.mode === 'host') { rebuild((window.PAGE_VARIANTS || ['losalamos'])[0], []); }
+      } else if (G.mode === 'host') { rebuild((window.PAGE_VARIANTS || ['losalamos'])[0], [], {}); }
       enterOnline();
     }
   }
