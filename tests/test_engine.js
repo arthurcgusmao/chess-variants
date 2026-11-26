@@ -1,5 +1,8 @@
-const E = require('../src/engine.js');
-const assert = require('assert');
+import assert from 'node:assert';
+import * as engine from '../src/engine.js';
+import { VARIANTS } from '../src/variants.js';
+
+const E = { ...engine, VARIANTS };
 
 // Opening move counts worked out by hand
 assert.strictEqual(E.legalMoves(E.newState('losalamos')).length, 10);
@@ -254,4 +257,82 @@ console.log('engine tests passed', tally);
   }
   assert.ok(swaps > 1000);
   console.log('classic + random-swap tests passed; swaps in playouts:', swaps, JSON.stringify(over));
+})();
+
+// ---------- cylinder chess ----------
+(function () {
+  const sq = (n) => 'abcdefgh'.indexOf(n[0]) + (Number(n[1]) - 1) * 8;
+  const names = (st, list) => list.map((i) => E.sqName(st, i)).sort().join(' ');
+  function pos(pieces, turn, extra) {
+    const st = E.newState('cylinder'); st.board.fill('');
+    for (const [n, p] of Object.entries(pieces)) st.board[sq(n)] = p;
+    st.turn = turn; st.cr = []; st.ep = -1; st.keys = []; return Object.assign(st, extra || {});
+  }
+  const dests = (st, from) => names(st, E.legalMoves(st, sq(from)).map((m) => m.to));
+
+  assert.strictEqual(E.legalMoves(E.newState('cylinder')).length, 20);
+  // Rook on an empty rank reaches every other square of it once, never its own square
+  let st = pos({ a4: 'wR', e1: 'wK', e8: 'bK' }, 'w');
+  assert.strictEqual(dests(st, 'a4'), 'a1 a2 a3 a5 a6 a7 a8 b4 c4 d4 e4 f4 g4 h4');
+  // Blocked one way round, open the other; captures across the edge
+  st = pos({ a4: 'wR', h4: 'wN', c4: 'bP', e1: 'wK', e8: 'bK' }, 'w');
+  assert.strictEqual(dests(st, 'a4'), 'a1 a2 a3 a5 a6 a7 a8 b4 c4');
+  st = pos({ a4: 'wR', h4: 'bN', b4: 'wP', e1: 'wK', e8: 'bK' }, 'w');
+  assert.strictEqual(dests(st, 'a4'), 'a1 a2 a3 a5 a6 a7 a8 h4');
+  // Bishop, knight and king cross the edge
+  st = pos({ h1: 'wB', e1: 'wK', e8: 'bK' }, 'w');
+  assert.strictEqual(dests(st, 'h1'), 'a2 a8 b3 b7 c4 c6 d5 e4 e6 f3 f7 g2 g8');   // both diagonals, d5 reached both ways
+  st = pos({ h1: 'wN', e1: 'wK', e8: 'bK' }, 'w');
+  assert.strictEqual(dests(st, 'h1'), 'a3 b2 f2 g3');
+  st = pos({ h1: 'wK', e8: 'bK' }, 'w');
+  assert.strictEqual(dests(st, 'h1'), 'a1 a2 g1 g2 h2');
+  // Pawn captures and en passant across the edge
+  st = pos({ h4: 'wP', a5: 'bN', e1: 'wK', e8: 'bK' }, 'w');
+  assert.strictEqual(dests(st, 'h4'), 'a5 h5');
+  st = pos({ h5: 'wP', a7: 'bP', e1: 'wK', e8: 'bK' }, 'b');
+  st = E.applyMove(st, E.findLegal(st, { from: sq('a7'), to: sq('a5') }));
+  assert.strictEqual(st.ep, sq('a6')); assert.strictEqual(dests(st, 'h5'), 'a6 h6');
+  const ep = E.findLegal(st, { from: sq('h5'), to: sq('a6') });
+  assert.strictEqual(E.moveLabel(st, ep), 'h5xa6');
+  let a = E.applyMove(st, ep);
+  assert.strictEqual(a.board[sq('a6')], 'wP'); assert.strictEqual(a.board[sq('a5')], ''); assert.strictEqual(a.board[sq('h5')], '');
+  // Check and mate through the edge
+  st = pos({ a8: 'bK', g8: 'wR', e1: 'wK' }, 'b');
+  assert.strictEqual(E.outcome(st).check, true);
+  st = pos({ a8: 'bK', g8: 'wR', h8: 'bN', e1: 'wK' }, 'b');   // blocked through the edge, but open the long way round
+  assert.strictEqual(E.outcome(st).check, true);
+  st = pos({ a8: 'bK', g8: 'wR', h8: 'bN', c8: 'bN', e1: 'wK' }, 'b');
+  assert.strictEqual(E.outcome(st).check, false);
+  st = pos({ h8: 'bK', a7: 'wQ', a6: 'wK' }, 'b');      // queen next door through the edge, guarded by the king
+  assert.strictEqual(E.outcome(st).check, true); assert.strictEqual(E.outcome(st).over, null);   // Kg8 still escapes
+  st = pos({ a8: 'bK', c7: 'wR', d8: 'wR', e1: 'wK' }, 'b');   // rank 8 covered both ways, rank 7 covered all round
+  assert.strictEqual(E.outcome(st).over, 'checkmate');
+  // The same position on a flat board has the same result here, but a flat-board mate that relies on the edge fails:
+  st = pos({ a8: 'bK', b6: 'wK', h8: 'wR' }, 'b');             // flat board: mate. Cylinder: rook is adjacent, Kxh8
+  assert.strictEqual(E.outcome(st).over, null); assert.ok(E.findLegal(st, { from: sq('a8'), to: sq('h8') }));
+  // Castling works as usual
+  st = pos({ e1: 'wK', a1: 'wR', h1: 'wR', e8: 'bK' }, 'w', { cr: [0, 7] });
+  assert.strictEqual(E.castleMoves(st).length, 2);
+  // Flat variants are untouched
+  st = E.newState('classic'); st.board.fill(''); st.board[sq('a4')] = 'wR'; st.board[sq('e1')] = 'wK'; st.board[sq('e8')] = 'bK'; st.cr = [];
+  assert.strictEqual(E.legalMoves(st, sq('a4')).length, 14);
+  assert.ok(!E.legalMoves(st, sq('e1')).some((m) => m.to % 8 === 0));
+
+  let seed = 99, cross = 0; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let g = 0; g < 40; g++) {
+    let s2 = E.newState('cylinder'), ply = 0, out = E.outcome(s2);
+    while (!out.over && ply < 200) {
+      const mv = E.legalMoves(s2);
+      assert.strictEqual(new Set(mv.map((m) => m.from + '-' + m.to + (m.promo || ''))).size, mv.length, 'duplicate move');
+      const pick = mv[Math.floor(rnd() * mv.length)];
+      assert.ok(pick.from !== pick.to); assert.ok(E.findLegal(s2, pick)); E.moveLabel(s2, pick);
+      if (Math.abs((pick.from % 8) - (pick.to % 8)) > 4) cross++;
+      const mover = s2.turn; s2 = E.applyMove(s2, pick); ply++;
+      assert.ok(!E.inCheck(s2, mover));
+      assert.strictEqual(s2.board.filter((p) => p === 'wK').length, 1); assert.strictEqual(s2.board.filter((p) => p === 'bK').length, 1);
+      out = E.outcome(s2);
+    }
+  }
+  assert.ok(cross > 100);
+  console.log('cylinder tests passed; edge-crossing moves in playouts:', cross);
 })();

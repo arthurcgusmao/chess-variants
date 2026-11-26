@@ -37,7 +37,7 @@ FAKE = r"""
 def click_sq(page, i): page.click(f'#board [data-sq="{i}"]')
 def move(page, a, b): click_sq(page, a); click_sq(page, b)
 def wait_text(page, sel, text): page.wait_for_function("([s,t]) => document.querySelector(s).textContent.includes(t)", arg=[sel, text], timeout=8000)
-def nmoves(page): return page.evaluate("window.__G.moves.length")
+def nmoves(page): return page.evaluate("window.__game.moves.length")
 
 srv = subprocess.Popen([sys.executable, '-m', 'http.server', '8765', '--bind', '127.0.0.1'], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(0.8)
@@ -86,7 +86,7 @@ try:
         host.screenshot(path=str(SHOTS / 'shot_host.png'))
         move(host, 1, 14); wait_text(guest, '#status', 'Your move'); assert nmoves(guest) == 3
         # an illegal move injected over the wire is rejected and state is unchanged
-        guest.evaluate("window.__G.conn.send({t:'move', g: window.__G.gameNo, i: 3, m:{from:30,to:0}})")
+        guest.evaluate("window.__game.net.send({t:'move', g: window.__game.gameNo, i: 3, m:{from:30,to:0}})")
         time.sleep(0.3); assert nmoves(host) == 3
         # resign + rematch swaps colours
         guest.click('#resign'); guest.click('#resign'); wait_text(host, '#status', 'Black resigned'); wait_text(guest, '#status', 'White wins')
@@ -94,7 +94,7 @@ try:
         assert nmoves(host) == 0 and nmoves(guest) == 0
         move(guest, 7, 13); wait_text(host, '#status', 'Your move')
         # --- castling option: chosen by the creator, synced to the guest, survives reloads ---
-        assert host.evaluate("window.__G.opts.castling") is False
+        assert host.evaluate("window.__game.opts.castling") is False
         h2 = ctx.new_page(); h2.on('pageerror', lambda e: errors.append('h2 ' + str(e)))
         h2.goto(URL); h2.check('#opt-castling'); h2.click('#create'); wait_text(h2, '#link', 'Waiting for opponent')
         g3 = ctx.new_page(); g3.on('pageerror', lambda e: errors.append('g3 ' + str(e)))
@@ -105,21 +105,21 @@ try:
         h2.screenshot(path=str(SHOTS / 'shot_castle_target.png'))
         click_sq(h2, 5); wait_text(g3, '#status', 'Your move')           # O-O
         for pg in (h2, g3):
-            assert pg.evaluate("[window.__G.state.board[5], window.__G.state.board[4], window.__G.state.board[3]].join()") == 'wK,wR,'
+            assert pg.evaluate("[window.__game.state.board[5], window.__game.state.board[4], window.__game.state.board[3]].join()") == 'wK,wR,'
             wait_text(pg, '#moves', 'O-O')
         g3.reload(); wait_text(g3, '#link', 'Connected'); wait_text(g3, '#moves', 'O-O'); assert nmoves(g3) == 3
         h2.reload(); wait_text(h2, '#link', 'Connected'); wait_text(h2, '#variant', 'castling'); assert nmoves(h2) == 3
         h2.screenshot(path=str(SHOTS / 'shot_castled.png'))
         # a castle sent over the wire in a game without the option is rejected
         n0 = nmoves(host)
-        guest.evaluate("window.__G.conn.send({t:'move', g: window.__G.gameNo, i: window.__G.moves.length, m:{from:3,to:5}})")
+        guest.evaluate("window.__game.net.send({t:'move', g: window.__game.gameNo, i: window.__game.moves.length, m:{from:3,to:5}})")
         time.sleep(0.3); assert nmoves(host) == n0
         # lobby shows the option
         lob = ctx.new_page(); lob.goto(URL); lob.screenshot(path=str(SHOTS / 'shot_lobby.png')); lob.close()
         h2.close(); g3.close()
         # --- Random Swap page: classic 8x8 with the swap rule ---
         SWAP = URL.replace('/los-alamos/', '/random-swap/')
-        board = "JSON.stringify(window.__G.state.board)"
+        board = "JSON.stringify(window.__game.state.board)"
         rs = ctx.new_page(); rs.on('pageerror', lambda e: errors.append('rs ' + str(e)))
         rs.goto(SWAP); assert rs.locator('#castle-field').is_hidden(); assert rs.locator('#variant-field').is_hidden()
         rs.screenshot(path=str(SHOTS / 'shot_swap_lobby.png'))
@@ -131,16 +131,16 @@ try:
         click_sq(rs, 28); wait_text(rg, '#status', 'Your move'); assert rs.locator('#note').is_hidden()
         move(rg, 52, 36); wait_text(rs, '#status', 'Your move')                  # e7-e5
         move(rs, 6, 21); wait_text(rg, '#status', 'Your move')                   # Ng1-f3, must swap
-        m = rs.evaluate("window.__G.moves[2]"); assert m['swap'] in (0, 2, 3, 5, 7), m
-        assert rs.evaluate("window.__G.state.board[21]") != 'wN' and rs.evaluate(f"window.__G.state.board[{m['swap']}]") == 'wN'
+        m = rs.evaluate("window.__game.moves[2]"); assert m['swap'] in (0, 2, 3, 5, 7), m
+        assert rs.evaluate("window.__game.state.board[21]") != 'wN' and rs.evaluate(f"window.__game.state.board[{m['swap']}]") == 'wN'
         assert rs.evaluate(board) == rg.evaluate(board)
         wait_text(rs, '#note', 'Swapped: f3 is now a'); wait_text(rg, '#note', 'Swapped: f3 is now a'); wait_text(rg, '#moves', '↔')
         assert rs.locator('#board .swap').count() == 2
         rs.screenshot(path=str(SHOTS / 'shot_swap.png'))
         # a swap partner the rules don't allow is rejected over the wire (black knight b8-c6 with a pawn)
-        rg.evaluate("window.__G.conn.send({t:'move', g: window.__G.gameNo, i: 3, m:{from:57,to:42,swap:48}})")
+        rg.evaluate("window.__game.net.send({t:'move', g: window.__game.gameNo, i: 3, m:{from:57,to:42,swap:48}})")
         time.sleep(0.3); assert nmoves(rs) == 3
-        rg.evaluate("window.__G.conn.send({t:'move', g: window.__G.gameNo, i: 3, m:{from:57,to:42}})")
+        rg.evaluate("window.__game.net.send({t:'move', g: window.__game.gameNo, i: 3, m:{from:57,to:42}})")
         time.sleep(0.3); assert nmoves(rs) == 3
         wait_text(rg, '#status', 'Your move'); move(rg, 57, 42); wait_text(rs, '#status', 'Your move'); assert nmoves(rs) == 4
         assert rs.evaluate(board) == rg.evaluate(board)
@@ -149,6 +149,33 @@ try:
         rs.reload(); wait_text(rs, '#link', 'Connected'); wait_text(rs, '#status', 'Your move'); assert rs.evaluate(board) == before
         rg.screenshot(path=str(SHOTS / 'shot_swap_black.png'))
         rs.close(); rg.close()
+        # --- Cylinder page ---
+        CYL = URL.replace('/los-alamos/', '/cylinder/')
+        first = "document.querySelector('#board .sq').dataset.sq"
+        cy = ctx.new_page(); cy.on('pageerror', lambda e: errors.append('cy ' + str(e)))
+        cy.goto(CYL); assert cy.locator('#castle-field').is_hidden()
+        cy.click('#local'); wait_text(cy, '#status', 'White to move'); assert cy.locator('#turn').is_visible()
+        assert cy.evaluate(first) == '56'                                   # a8 top-left
+        cy.click('#turn-right'); assert cy.evaluate(first) == '57'          # view turned one file: b8 top-left
+        for _ in range(7): cy.click('#turn-right')
+        assert cy.evaluate(first) == '56'
+        for _ in range(4): cy.click('#turn-left')
+        assert cy.evaluate(first) == '60'                                   # seam now in the middle
+        # 1.h4 a5 2.Rh3 Nc6: the rook on h3 has a3 next door through the edge
+        move(cy, 15, 31); move(cy, 48, 32); move(cy, 7, 23); move(cy, 57, 42)
+        click_sq(cy, 23)
+        assert cy.locator('#board [data-sq="16"].target').count() == 1
+        cy.screenshot(path=str(SHOTS / 'shot_cylinder.png'))
+        move(cy, 31, 32); wait_text(cy, '#moves', 'h4xa5')                  # the h-pawn takes on a5 across the edge
+        cy.close()
+        # online: variant reaches the guest
+        ch = ctx.new_page(); ch.goto(CYL); ch.click('#create'); wait_text(ch, '#link', 'Waiting for opponent')
+        cg = ctx.new_page(); cg.on('pageerror', lambda e: errors.append('cg ' + str(e)))
+        cg.goto(ch.input_value('#invite-url')); wait_text(cg, '#link', 'Connected'); wait_text(cg, '#variant', 'Cylinder')
+        move(ch, 12, 28); wait_text(cg, '#status', 'Your move'); assert cg.locator('#turn').is_visible()
+        cg.click('#turn-right'); move(cg, 52, 36); wait_text(ch, '#status', 'Your move')
+        ch.close(); cg.close()
+        los = ctx.new_page(); los.goto(URL); los.click('#local'); assert los.locator('#turn').is_hidden(); los.close()
         # guest opening the room before the host is online keeps retrying, then connects
         ctx2 = br.new_context(); ctx2.add_init_script(FAKE)
         g2 = ctx2.new_page(); g2.goto(URL + '?room=nobodyhere'); wait_text(g2, '#link', 'Host is not online')

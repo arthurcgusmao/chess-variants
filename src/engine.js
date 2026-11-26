@@ -1,33 +1,24 @@
-'use strict';
-/* ---------- Rules engine: pure functions, no DOM. Board-size agnostic. ----------
-   Add a variant by adding an entry here. `back` is White's back rank from the
-   a-file; Black mirrors it. Rule flags (all default off):
-     doubleStep       pawns may advance two squares from their start row
-     enPassant        en passant captures
-     castling         castling always on (see castleMoves)
-     castlingOptional the game creator may switch castling on
-     swap             after moving a R/B/N/Q it swaps type with another of the mover's
-                      R/B/N/Q of a different type, picked at random (see swapCandidates) */
-const VARIANTS = {
-  losalamos: { name: 'Los Alamos 6×6', blurb: 'No bishops', cols: 6, rows: 6, back: 'RNQKNR', promo: ['Q', 'R', 'N'], castlingOptional: true },
-  classic:   { name: 'Classic 8×8', blurb: 'Standard chess', cols: 8, rows: 8, back: 'RNBQKBNR', promo: ['Q', 'R', 'B', 'N'],
-               doubleStep: true, enPassant: true, castling: true },
-  randomswap: { name: 'Random Swap 8×8', blurb: 'The piece you move swaps type', cols: 8, rows: 8, back: 'RNBQKBNR', promo: ['Q', 'R', 'B', 'N'],
-               doubleStep: true, enPassant: true, castling: true, swap: true },
-  norooks:   { name: 'Mini 6×6', blurb: 'No rooks', cols: 6, rows: 6, back: 'NBQKBN', promo: ['Q', 'B', 'N'] },
-  gardner:   { name: 'Gardner 5×5', blurb: 'All piece types', cols: 5, rows: 5, back: 'RNBQK', promo: ['Q', 'R', 'B', 'N'] },
-};
+/* Rules engine: pure functions over an immutable game state, no DOM and no networking.
+   Board-size agnostic; everything variant-specific comes from the VARIANTS table.
+
+   State:  { vk, cols, rows, board, turn, keys, castling, cr, ep }
+     board  flat array, index = row * cols + col, row 0 is White's back rank;
+            each entry is '' or colour + type, e.g. 'wN'
+     keys   position keys so far, for threefold repetition
+     cr     rook start squares whose piece has not moved (castling rights)
+     ep     square a pawn just skipped with a double step, or -1
+   Move:   { from, to, promo?, ep?, castle?, swap? } */
+import { VARIANTS } from './variants.js';
 
 const ORTHO = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const DIAG = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 const JUMPS = [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]];
-const other = (c) => (c === 'w' ? 'b' : 'w');
+export const other = (c) => (c === 'w' ? 'b' : 'w');
 
 function posKey(s) { return s.board.join(',') + s.turn + s.cr.join('.') + '/' + s.ep; }
 
-/* opts.castling: allow castling where it is optional. s.cr lists the rook start squares whose
-   piece has not moved (it keeps the right even if a swap changed its type); s.ep is the square a pawn just skipped with a double step, or -1. */
-function newState(vk, opts) {
+/* The starting position. opts.castling switches castling on where the variant makes it optional. */
+export function newState(vk, opts) {
   const v = VARIANTS[vk];
   const b = new Array(v.cols * v.rows).fill('');
   for (let c = 0; c < v.cols; c++) {
@@ -45,17 +36,22 @@ function newState(vk, opts) {
 }
 
 /* Squares a piece on `from` attacks (regardless of what stands there). */
-function attacks(s, from) {
+export function attacks(s, from) {
   const p = s.board[from]; const out = [];
   if (!p) return out;
   const col = p[0], t = p[1];
   const r = Math.floor(from / s.cols), c = from % s.cols;
+  const wrap = !!VARIANTS[s.vk].wrap;
+  const fix = (cc) => (wrap ? ((cc % s.cols) + s.cols) % s.cols : cc);          // column after crossing the joined edge
   const inside = (rr, cc) => rr >= 0 && rr < s.rows && cc >= 0 && cc < s.cols;
-  const step = (list) => { for (const [dr, dc] of list) if (inside(r + dr, c + dc)) out.push((r + dr) * s.cols + c + dc); };
+  const step = (list) => { for (const [dr, dc] of list) { const cc = fix(c + dc); if (inside(r + dr, cc)) out.push((r + dr) * s.cols + cc); } };
   const slide = (list) => {
     for (const [dr, dc] of list) {
-      let rr = r + dr, cc = c + dc;
-      while (inside(rr, cc)) { out.push(rr * s.cols + cc); if (s.board[rr * s.cols + cc]) break; rr += dr; cc += dc; }
+      let rr = r + dr, cc = fix(c + dc);
+      // On a cylinder a slider on an empty rank would come back to its own square: stop there (no null move).
+      while (inside(rr, cc) && !(rr === r && cc === c)) {
+        out.push(rr * s.cols + cc); if (s.board[rr * s.cols + cc]) break; rr += dr; cc = fix(cc + dc);
+      }
     }
   };
   if (t === 'P') { const d = col === 'w' ? 1 : -1; step([[d, 1], [d, -1]]); }
@@ -64,22 +60,22 @@ function attacks(s, from) {
   else if (t === 'R') slide(ORTHO);
   else if (t === 'B') slide(DIAG);
   else if (t === 'Q') slide(ORTHO.concat(DIAG));
-  return out;
+  return wrap ? Array.from(new Set(out)) : out;   // a square can be reached both ways round
 }
 
-function isAttacked(s, sq, by) {
+export function isAttacked(s, sq, by) {
   for (let i = 0; i < s.board.length; i++) {
     if (s.board[i] && s.board[i][0] === by && attacks(s, i).includes(sq)) return true;
   }
   return false;
 }
 
-function inCheck(s, color) {
+export function inCheck(s, color) {
   const k = s.board.indexOf(color + 'K');
   return k >= 0 && isAttacked(s, k, other(color));
 }
 
-function pseudoMoves(s, from) {
+export function pseudoMoves(s, from) {
   const p = s.board[from]; const out = [];
   if (!p) return out;
   const col = p[0], t = p[1];
@@ -108,7 +104,7 @@ function pseudoMoves(s, from) {
 }
 
 /* Returns a new state; does not check legality. */
-function applyMove(s, m) {
+export function applyMove(s, m) {
   const b = s.board.slice();
   const p = b[m.from];
   let cr = s.cr;
@@ -138,7 +134,7 @@ function applyMove(s, m) {
    square between them is empty, the king is not in check, and it neither crosses nor
    lands on an attacked square. On 6x6 Los Alamos (king on d): short = Kd1-f1 + Rf1-e1,
    long = Kd1-b1 + Ra1-c1. */
-function castleMoves(s) {
+export function castleMoves(s) {
   const out = [];
   if (!s.castling || !s.cr.length) return out;
   const me = s.turn, foe = other(me);
@@ -165,7 +161,7 @@ function castleMoves(s) {
   return out;
 }
 
-function legalMoves(s, onlyFrom) {
+export function legalMoves(s, onlyFrom) {
   const out = [];
   for (let i = 0; i < s.board.length; i++) {
     if (onlyFrom !== undefined && i !== onlyFrom) continue;
@@ -177,7 +173,7 @@ function legalMoves(s, onlyFrom) {
 }
 
 /* The legal move matching from/to/promo, without any swap decided yet. */
-function findBase(s, m) {
+export function findBase(s, m) {
   if (!m || typeof m.from !== 'number' || typeof m.to !== 'number') return null;
   return legalMoves(s, m.from).find((x) => x.to === m.to && (x.promo || null) === (m.promo || null)) || null;
 }
@@ -187,7 +183,7 @@ function findBase(s, m) {
    Pieces stay on their squares and only types change, so a swap can never expose the
    mover's own king. Empty when the variant has no swap or no partner exists. */
 const SWAPPABLE = 'RBNQ';
-function swapCandidates(s, m) {
+export function swapCandidates(s, m) {
   const p = s.board[m.from]; const out = [];
   if (!VARIANTS[s.vk].swap || m.castle !== undefined || !SWAPPABLE.includes(p[1])) return out;
   for (let i = 0; i < s.board.length; i++) {
@@ -199,7 +195,7 @@ function swapCandidates(s, m) {
 
 /* Full validation of a move as stored or received: a legal base move plus, in swap
    variants, a swap partner (m.swap) that is one of the allowed candidates. */
-function findLegal(s, m) {
+export function findLegal(s, m) {
   const base = findBase(s, m);
   if (!base) return null;
   const cands = swapCandidates(s, base);
@@ -213,7 +209,7 @@ function insufficient(s) {
 }
 
 /* { check, over: null|'checkmate'|'stalemate'|'material'|'repetition', winner: 'w'|'b'|null } */
-function outcome(s) {
+export function outcome(s) {
   const check = inCheck(s, s.turn);
   if (legalMoves(s).length === 0) {
     return check ? { check, over: 'checkmate', winner: other(s.turn) } : { check, over: 'stalemate', winner: null };
@@ -224,10 +220,10 @@ function outcome(s) {
   return { check, over: null, winner: null };
 }
 
-function sqName(s, i) { return 'abcdefghij'[i % s.cols] + (Math.floor(i / s.cols) + 1); }
+export function sqName(s, i) { return 'abcdefghij'[i % s.cols] + (Math.floor(i / s.cols) + 1); }
 
 /* Long notation for a legal move, e.g. Nb1-c3, a5xb6=Q+ */
-function moveLabel(s, m) {
+export function moveLabel(s, m) {
   const p = s.board[m.from];
   let t = m.castle !== undefined ? (m.to > m.from ? 'O-O' : 'O-O-O')
     : (p[1] === 'P' ? '' : p[1]) + sqName(s, m.from) + (s.board[m.to] || m.ep ? 'x' : '-') + sqName(s, m.to);
@@ -238,6 +234,3 @@ function moveLabel(s, m) {
   return t;
 }
 
-if (typeof module !== 'undefined') {
-  module.exports = { VARIANTS, newState, castleMoves, legalMoves, findBase, findLegal, swapCandidates, applyMove, outcome, inCheck, moveLabel, sqName, other };
-}
