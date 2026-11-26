@@ -6,8 +6,14 @@ connect peer-to-peer (WebRTC via [PeerJS](https://peerjs.com)), so there is no g
 | Variant | Folder | Rules |
 | --- | --- | --- |
 | Los Alamos | `los-alamos/` | 6×6, no bishops, no en passant, no pawn double-step; castling optional |
+| 8×7 | `8x7/` | Classic chess on 8 files by 7 ranks |
 | Cylinder | `cylinder/` | Classic 8×8 chess with the a- and h-files joined |
 | Random Swap | `random-swap/` | Classic 8×8 chess plus the swap rule below |
+
+**8×7.** The standard pieces and all classic rules on a board with seven ranks. Pawns start on
+ranks 2 and 6, so only three empty ranks separate them and a double step from either side
+lands on rank 4: whoever gets there first blocks that file's opposing double step. Pawns
+promote on the far rank (7 for White, 1 for Black).
 
 **Cylinder.** The standard starting position and all classic rules (castling, en passant, pawn
 double-step), on a board whose left and right edges are joined. Every piece can cross that

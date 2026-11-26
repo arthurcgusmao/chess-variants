@@ -336,3 +336,52 @@ console.log('engine tests passed', tally);
   assert.ok(cross > 100);
   console.log('cylinder tests passed; edge-crossing moves in playouts:', cross);
 })();
+
+// ---------- 8x7 ----------
+(function () {
+  const sq = (n) => 'abcdefgh'.indexOf(n[0]) + (Number(n[1]) - 1) * 8;
+  const play = (st, a, b, extra) => E.applyMove(st, E.findLegal(st, { from: sq(a), to: sq(b), ...extra }));
+  const dests = (st, from) => E.legalMoves(st, sq(from)).map((m) => E.sqName(st, m.to)).sort().join(' ');
+  let st = E.newState('short');
+  assert.strictEqual(st.board.length, 56);
+  assert.strictEqual(st.board[sq('e6')], 'bP'); assert.strictEqual(st.board[sq('e7')], 'bK'); assert.strictEqual(st.board[sq('d7')], 'bQ');
+  assert.deepStrictEqual(st.cr, [0, 7, 48, 55]);
+  assert.strictEqual(E.legalMoves(st).length, 20);
+  assert.strictEqual(dests(st, 'e2'), 'e3 e4');
+  // Both sides double-step onto rank 4: the first pawn there blocks the other's double step
+  st = play(st, 'e2', 'e4');
+  assert.strictEqual(dests(st, 'e6'), 'e5'); assert.strictEqual(dests(st, 'd6'), 'd4 d5');
+  // ...and a double step that lands beside an enemy pawn can be taken en passant
+  st = play(st, 'd6', 'd4');
+  assert.strictEqual(st.ep, sq('d5')); assert.strictEqual(dests(st, 'e4'), 'd5 e5');
+  let a = play(st, 'e4', 'd5');
+  assert.strictEqual(a.board[sq('d5')], 'wP'); assert.strictEqual(a.board[sq('d4')], '');
+  // The right lapses after one move
+  a = play(play(st, 'a2', 'a3'), 'a6', 'a5');
+  assert.strictEqual(dests(a, 'e4'), 'e5');
+  // Promotion on rank 7 for White and rank 1 for Black; castling as usual
+  st = E.newState('short'); st.board.fill(''); st.cr = [];
+  Object.entries({ a6: 'wP', e1: 'wK', h7: 'bK', h2: 'bP' }).forEach(([n, p]) => { st.board[sq(n)] = p; });
+  assert.deepStrictEqual(E.legalMoves(st, sq('a6')).map((m) => m.promo).sort(), ['B', 'N', 'Q', 'R']);
+  st.turn = 'b';
+  assert.deepStrictEqual(E.legalMoves(st, sq('h2')).map((m) => m.promo).sort(), ['B', 'N', 'Q', 'R']);
+  st = E.newState('short'); st.board.fill(''); st.cr = [0, 7, 48, 55];
+  Object.entries({ a1: 'wR', e1: 'wK', h1: 'wR', a7: 'bR', e7: 'bK', h7: 'bR' }).forEach(([n, p]) => { st.board[sq(n)] = p; });
+  assert.strictEqual(E.castleMoves(st).length, 2); st.turn = 'b'; assert.strictEqual(E.castleMoves(st).length, 2);
+
+  let seed = 31337; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; const over = {};
+  for (let g = 0; g < 60; g++) {
+    let s2 = E.newState('short'), ply = 0, out = E.outcome(s2);
+    while (!out.over && ply < 200) {
+      const mv = E.legalMoves(s2); const pick = mv[Math.floor(rnd() * mv.length)];
+      assert.ok(E.findLegal(s2, pick)); E.moveLabel(s2, pick);
+      const mover = s2.turn; s2 = E.applyMove(s2, pick); ply++;
+      assert.ok(!E.inCheck(s2, mover));
+      assert.strictEqual(s2.board.filter((p) => p === 'wK').length, 1); assert.strictEqual(s2.board.filter((p) => p === 'bK').length, 1);
+      assert.ok(!s2.board.slice(48).includes('wP') && !s2.board.slice(0, 8).includes('bP'), 'unpromoted pawn');
+      out = E.outcome(s2);
+    }
+    over[out.over || 'cap'] = (over[out.over || 'cap'] || 0) + 1;
+  }
+  console.log('8x7 tests passed', JSON.stringify(over));
+})();

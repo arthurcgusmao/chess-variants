@@ -13,6 +13,8 @@ export const VARIANTS = {
   losalamos: { name: 'Los Alamos 6×6', blurb: 'No bishops', cols: 6, rows: 6, back: 'RNQKNR', promo: ['Q', 'R', 'N'], castlingOptional: true },
   classic:   { name: 'Classic 8×8', blurb: 'Standard chess', cols: 8, rows: 8, back: 'RNBQKBNR', promo: ['Q', 'R', 'B', 'N'],
                doubleStep: true, enPassant: true, castling: true },
+  short:     { name: 'Chess 8×7', blurb: 'One rank fewer', cols: 8, rows: 7, back: 'RNBQKBNR', promo: ['Q', 'R', 'B', 'N'],
+               doubleStep: true, enPassant: true, castling: true },
   cylinder:  { name: 'Cylinder 8×8', blurb: 'a- and h-files are joined', cols: 8, rows: 8, back: 'RNBQKBNR', promo: ['Q', 'R', 'B', 'N'],
                doubleStep: true, enPassant: true, castling: true, wrap: true },
   randomswap: { name: 'Random Swap 8×8', blurb: 'The piece you move swaps type', cols: 8, rows: 8, back: 'RNBQKBNR', promo: ['Q', 'R', 'B', 'N'],

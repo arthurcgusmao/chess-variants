@@ -19,6 +19,12 @@ PAGES = {
         'summary': '6×6, no bishops',
         'variants': ['losalamos'],
     },
+    '8x7': {
+        'title': '8×7 Chess',
+        'sub': 'Classic chess with one rank fewer: both sides’ pawns double-step onto the same middle rank.',
+        'summary': 'classic chess on 8 files by 7 ranks, so the pawns meet in the middle',
+        'variants': ['short'],
+    },
     'cylinder': {
         'title': 'Cylinder Chess',
         'sub': 'Classic 8×8 chess on a board rolled into a cylinder: the a- and h-files are joined.',

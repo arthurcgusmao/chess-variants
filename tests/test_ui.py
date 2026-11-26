@@ -149,6 +149,19 @@ try:
         rs.reload(); wait_text(rs, '#link', 'Connected'); wait_text(rs, '#status', 'Your move'); assert rs.evaluate(board) == before
         rg.screenshot(path=str(SHOTS / 'shot_swap_black.png'))
         rs.close(); rg.close()
+        # --- 8x7 page ---
+        sh = ctx.new_page(); sh.on('pageerror', lambda e: errors.append('sh ' + str(e)))
+        sh.goto(URL.replace('/los-alamos/', '/8x7/')); assert sh.locator('#castle-field').is_hidden()
+        sh.click('#local'); wait_text(sh, '#status', 'White to move'); wait_text(sh, '#variant', '8×7')
+        assert sh.locator('#board .sq').count() == 56 and sh.locator('#turn').is_hidden()
+        click_sq(sh, 12); assert sh.locator('#board .target').count() == 2      # e2: e3, e4
+        click_sq(sh, 28); wait_text(sh, '#status', 'Black to move')             # e2-e4
+        click_sq(sh, 44); assert sh.locator('#board .target').count() == 1      # e6 can only reach e5 now
+        click_sq(sh, 44); move(sh, 43, 27); wait_text(sh, '#status', 'White to move')   # d6-d4, beside e4
+        click_sq(sh, 28); assert sh.locator('#board [data-sq="35"].target').count() == 1  # en passant on d5
+        click_sq(sh, 35); wait_text(sh, '#moves', 'e4xd5'); assert sh.evaluate("window.__game.state.board[27]") == ''
+        sh.screenshot(path=str(SHOTS / 'shot_8x7.png'))
+        sh.close()
         # --- Cylinder page ---
         CYL = URL.replace('/los-alamos/', '/cylinder/')
         first = "document.querySelector('#board .sq').dataset.sq"
