@@ -22,6 +22,16 @@
         <option value="b">Black</option>
         <option value="r">Random</option>
       </select>
+      <div class="pair">
+        <div>
+          <label for="pick-minutes">Clock</label>
+          <select id="pick-minutes"></select>
+        </div>
+        <div id="increment-field">
+          <label for="pick-increment">Increment</label>
+          <select id="pick-increment"></select>
+        </div>
+      </div>
       <label class="check" id="castle-field" for="opt-castling">
         <input type="checkbox" id="opt-castling">
         <span>Allow castling<small>King moves two squares toward a rook; the rook lands on the square the king crossed.</small></span>
@@ -40,7 +50,9 @@
     </div>
     <div id="status" role="status" aria-live="polite"></div>
     <div id="note" hidden></div>
+    <div id="clock-top" class="clock" hidden><span class="who"></span><span class="time"></span></div>
     <div id="board"></div>
+    <div id="clock-bottom" class="clock" hidden><span class="who"></span><span class="time"></span></div>
     <div id="turn" class="turn" hidden>
       <button class="btn" id="turn-left" type="button" aria-label="Turn the board left">◀</button>
       <span>Turn the cylinder</span>

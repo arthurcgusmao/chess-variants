@@ -149,6 +149,46 @@ try:
         rs.reload(); wait_text(rs, '#link', 'Connected'); wait_text(rs, '#status', 'Your move'); assert rs.evaluate(board) == before
         rg.screenshot(path=str(SHOTS / 'shot_swap_black.png'))
         rs.close(); rg.close()
+        # --- clocks: chosen by the creator, synced with every move, flag fall reaches both sides ---
+        clk = "JSON.stringify(window.__game.clock)"
+        th = ctx.new_page(); th.on('pageerror', lambda e: errors.append('th ' + str(e)))
+        th.goto(URL); assert th.locator('#increment-field').is_hidden()
+        th.select_option('#pick-minutes', '1'); assert th.locator('#increment-field').is_visible()
+        th.select_option('#pick-increment', '2'); th.screenshot(path=str(SHOTS / 'shot_clock_lobby.png'))
+        th.click('#create'); wait_text(th, '#link', 'Waiting for opponent'); wait_text(th, '#clock-bottom', '1:00')
+        tg = ctx.new_page(); tg.on('pageerror', lambda e: errors.append('tg ' + str(e)))
+        tg.goto(th.input_value('#invite-url')); wait_text(tg, '#link', 'Connected'); wait_text(tg, '#variant', '1+2')
+        wait_text(tg, '#clock-bottom', 'Black (you)'); wait_text(tg, '#clock-top', 'White'); wait_text(tg, '#clock-bottom', '1:00')
+        assert th.evaluate("window.__game.turnStart") is None                   # nothing runs before the first move
+        move(th, 6, 12); wait_text(tg, '#status', 'Your move')                   # a2-a3
+        assert tg.locator('#clock-bottom.running').count() == 1 and th.locator('#clock-top.running').count() == 1
+        time.sleep(1.2)
+        move(tg, 24, 18); wait_text(th, '#status', 'Your move')                  # a5-a4
+        hc, gc = th.evaluate("window.__game.clock"), tg.evaluate("window.__game.clock")
+        assert hc == gc, (hc, gc)                                                # the mover's own reading is what both hold
+        assert 60000 < gc['b'] < 61000 and gc['w'] == 60000, gc                 # ~1.2 s used, 2 s added; White's first move was free
+        tg.screenshot(path=str(SHOTS / 'shot_clock.png'))
+        # reload both sides mid-game: clocks survive
+        tg.reload(); wait_text(tg, '#link', 'Connected'); wait_text(tg, '#status', 'Opponent'); assert tg.evaluate("window.__game.clock.b") == gc['b']
+        th.reload(); wait_text(th, '#link', 'Connected'); wait_text(th, '#status', 'Your move')
+        assert th.evaluate("window.__game.clock.b") == gc['b'] and 50000 < th.evaluate("window.__game.clock.w") <= 60000
+        assert th.locator('#clock-bottom.running').count() == 1
+        # White's time runs out on White's own device: both sides see it
+        th.evaluate("window.__game.clock = { ...window.__game.clock, w: 300 }")
+        wait_text(th, '#status', 'White ran out of time — Black wins'); wait_text(tg, '#status', 'White ran out of time — Black wins')
+        wait_text(th, '#clock-bottom', '0:00'); assert th.locator('#clock-bottom.running').count() == 0
+        click_sq(th, 7); assert th.locator('#board .sel').count() == 0           # no more moves
+        tg.click('#rematch'); wait_text(tg, '#variant', 'you are White'); wait_text(tg, '#clock-bottom', '1:00'); wait_text(th, '#clock-top', '1:00')
+        assert th.evaluate(clk) == '{"w":60000,"b":60000}'
+        # the other player's flag is called after a grace period if their device never reports it
+        move(tg, 6, 12); wait_text(th, '#status', 'Your move')
+        tg.evaluate("window.__game.tick = () => false")                          # guest device stops watching its clock
+        move(th, 24, 18); wait_text(tg, '#status', 'Your move')
+        th.evaluate("window.__game.clock = { ...window.__game.clock, w: 100 }")  # host believes White (guest) is nearly out
+        wait_text(th, '#status', 'White ran out of time', ); wait_text(tg, '#status', 'White ran out of time')
+        th.close(); tg.close()
+        # games without a clock show none
+        assert host.locator('#clock-top').is_hidden() and host.locator('#clock-bottom').is_hidden()
         # --- 8x7 page ---
         sh = ctx.new_page(); sh.on('pageerror', lambda e: errors.append('sh ' + str(e)))
         sh.goto(URL.replace('/los-alamos/', '/8x7/')); assert sh.locator('#castle-field').is_hidden()

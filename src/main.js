@@ -2,7 +2,8 @@
    Which variants a page offers comes from <body data-variants="..."> (set by build.py). */
 import { VARIANTS } from './variants.js';
 import { Game } from './game.js';
-import { render, showGameScreen } from './view.js';
+import { CLOCK_MINUTES, CLOCK_INCREMENTS } from './clock.js';
+import { render, renderClocks, showGameScreen } from './view.js';
 
 const $ = (id) => document.getElementById(id);
 const pageUrl = () => location.href.split(/[?#]/)[0];
@@ -19,6 +20,9 @@ const game = new Game((kind) => {
   render(game, ui);
 });
 window.__game = game;   // for debugging in the console, and for tests/test_ui.py
+
+// Keeps the clocks moving. A flag fall changes the game, which triggers a full redraw by itself.
+setInterval(() => { if (game.timed && !game.tick()) renderClocks(game); }, 200);
 
 /* ---------- board ---------- */
 function onSquare(i) {
@@ -87,9 +91,23 @@ $('variant-field').hidden = offered.length < 2;
 
 // The castling switch only applies to variants where castling is optional.
 const castlingOptional = () => !!VARIANTS[variantPick.value].castlingOptional;
-const chosenOptions = () => ({ castling: castlingOptional() && $('opt-castling').checked });
-const syncOptions = () => { $('castle-field').hidden = !castlingOptional(); };
+
+// Time control: minutes per player, and seconds added after each move.
+const minutesPick = $('pick-minutes'), incrementPick = $('pick-increment');
+for (const m of CLOCK_MINUTES) minutesPick.add(new Option(m ? m + ' min each' : 'No clock', m));
+for (const s of CLOCK_INCREMENTS) incrementPick.add(new Option(s ? '+' + s + ' s per move' : 'No increment', s));
+
+const chosenOptions = () => ({
+  castling: castlingOptional() && $('opt-castling').checked,
+  minutes: Number(minutesPick.value),
+  increment: Number(incrementPick.value),
+});
+function syncOptions() {
+  $('castle-field').hidden = !castlingOptional();
+  $('increment-field').hidden = minutesPick.value === '0';
+}
 variantPick.addEventListener('change', syncOptions);
+minutesPick.addEventListener('change', syncOptions);
 syncOptions();
 
 function enterRoom() {

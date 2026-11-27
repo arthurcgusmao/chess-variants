@@ -3,6 +3,7 @@
    Rendering is a full redraw; nothing here changes the game. */
 import { sqName, other } from './engine.js';
 import { pieceEl, PIECE_NAME, COLOR_NAME } from './pieces.js';
+import { formatClock, timeLabel } from './clock.js';
 
 const $ = (id) => document.getElementById(id);
 const FILES = 'abcdefghij';
@@ -20,6 +21,7 @@ function statusText(game, result) {
   const me = game.myColor, turn = game.state.turn;
   switch (result.over) {
     case 'checkmate': return 'Checkmate — ' + COLOR_NAME[result.winner] + ' wins';
+    case 'time': return COLOR_NAME[other(result.winner)] + ' ran out of time — ' + COLOR_NAME[result.winner] + ' wins';
     case 'resign': return COLOR_NAME[other(result.winner)] + ' resigned — ' + COLOR_NAME[result.winner] + ' wins';
     case 'stalemate': return 'Draw — stalemate';
     case 'material': return 'Draw — not enough material';
@@ -115,14 +117,36 @@ function renderMoveList(game) {
   list.scrollTop = list.scrollHeight;
 }
 
+const LOW_TIME_MS = 20000;
+
+/* The two clocks: the opponent's above the board, this player's below (White below when
+   both sides share a device). Cheap enough to call several times a second. */
+export function renderClocks(game, now = Date.now()) {
+  const show = game.timed && !!game.state;
+  $('game').classList.toggle('has-clock', show);
+  const bottom = game.myColor || 'w';
+  for (const [id, color] of [['clock-top', other(bottom)], ['clock-bottom', bottom]]) {
+    const el = $(id);
+    el.hidden = !show;
+    if (!show) continue;
+    const left = game.remaining(color, now);
+    const running = game.turnStart !== null && game.state.turn === color;
+    el.className = 'clock' + (running ? ' running' : '') + (left < LOW_TIME_MS ? ' low' : '');
+    el.querySelector('.who').textContent = COLOR_NAME[color] + (color === game.myColor ? ' (you)' : '');
+    el.querySelector('.time').textContent = formatClock(left);
+  }
+}
+
 export function render(game, ui) {
   renderLink(game);
+  renderClocks(game);
   if (!game.state) { $('status').textContent = 'Joining game…'; return; }
   const result = game.result(), me = game.myColor;
   const playable = !game.online || game.connected;
 
   $('status').textContent = statusText(game, result);
   $('variant').textContent = game.variant.name + (game.opts.castling ? ' · castling' : '') +
+    (game.timed ? ' · ' + timeLabel(game.opts) : '') +
     (me ? ' · you are ' + COLOR_NAME[me] : ' · one device');
   renderSwapNote(game);
   renderBoard(game, ui, result);

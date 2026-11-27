@@ -35,6 +35,11 @@ the king moves two squares toward a rook and that rook lands on the square the k
 has moved, the squares between them are empty, and the king is not in check and does not cross
 or land on an attacked square.
 
+**Clock (all variants).** The game creator can pick a time per player (1 to 60 minutes) and an
+increment per move. Clocks start after the first move, and a player whose time runs out loses.
+Each browser keeps its own player's time and reports it with every move, so network delay is
+not charged to anyone. Clocks stop while the two browsers are disconnected.
+
 ## Play
 
 Open the variant page, choose **Create online game**, and send the invite link to your opponent.
@@ -43,7 +48,7 @@ The creator's browser hosts the game: keep that tab open and bookmark its URL (t
 ## Develop
 
     python3 build.py                 # regenerates the pages after changing a template or PAGES
-    node tests/test_engine.js        # rules tests (or: npm test)
+    npm test                         # rules, clock and game tests (node, no dependencies)
     python3 tests/test_ui.py         # two-browser test (needs playwright + Chrome)
     python3 -m http.server 8000      # then open http://localhost:8000/
 
@@ -53,7 +58,8 @@ There is no bundler: the pages load the modules in `src/` directly.
 | --- | --- |
 | `src/variants.js` | The variant table: board size, back rank, rule flags |
 | `src/engine.js` | Rules: legal moves, applying a move, check, game end. Pure functions, no DOM |
-| `src/game.js` | One game: move list, turns, resign and rematch, and the sync protocol |
+| `src/game.js` | One game: move list, turns, clocks, resign and rematch, and the sync protocol |
+| `src/clock.js` | Time controls on offer and clock helpers |
 | `src/net.js` | The peer-to-peer connection (PeerJS). Knows nothing about chess |
 | `src/storage.js` | Saved games in the browser |
 | `src/view.js` | Draws the screen from a game |
